@@ -11,9 +11,10 @@ from PIL import Image
 
 
 class Observer:
-    def __init__(self, robot_interface, camera_interfaces, save_dir=None, chunk_size=6):
+    def __init__(self, robot_interface, camera_interfaces, emg_interface, save_dir=None, chunk_size=6):
         self.robot = robot_interface
         self.cameras = camera_interfaces
+        self.emg = emg_interface
         self.start_time = time.time()
 
         # Demo collection mode: create unified Zarr store and datasets.
@@ -24,7 +25,7 @@ class Observer:
             self.image_buffer = []  # Each element is a list of JPEG bytes for all cameras.
             self.proprio_buffer = []  # Each element is a tuple with proprioceptive data.
             self.actions_buffer = []  # Each element is a tuple with action data.
-
+            self.emg_buffer = []
             # Create a unique save directory.
             self.save_dir = save_dir
             Path(self.save_dir).mkdir(parents=True, exist_ok=True)
@@ -95,6 +96,17 @@ class Observer:
                 compressor=None,
                 overwrite=True,
             )
+
+            #Create EMG dataset.
+            self.emg_ds = self.zarr_root.create_dataset(
+                "emg",
+                shape=(self.emg.window_length, 8),
+                maxshape=(self.emg.window_length, 8),
+                chunks=(self.emg.window_length, chunk_size), #TODO: idk if these shapes are right
+                dtype=np.array,
+                compressor=None,
+                overwrite=True,
+            )
         else:
             # In inference mode, no disk stores are created.
             self.save_dir = None
@@ -133,6 +145,8 @@ class Observer:
                 pil_img.save(buf, format="JPEG", quality=75)
                 jpeg_bytes = buf.getvalue()
                 encoded_images.append(jpeg_bytes)
+
+        obs["emg"] = self.emg.read()
 
         if self.save_dir is not None:
             self.current_encoded_images = encoded_images
@@ -180,6 +194,8 @@ class Observer:
         )
         self.actions_buffer.append(action_entry)
 
+        self.emg_buffer.append(obs["emg"])
+
         self.obs_counter += 1
         if self.obs_counter % self.chunk_size == 0:
             self.flush_buffers()
@@ -201,10 +217,12 @@ class Observer:
         actions_chunk = np.array(self.actions_buffer, dtype=self.actions_ds.dtype)
         self.actions_ds.append(actions_chunk)
 
+        self.emg_ds.append(self.emg_buffer)
         # Clear buffers.
         self.image_buffer = []
         self.proprio_buffer = []
         self.actions_buffer = []
+        self.emg_buffer = []
 
     def write_to_disk(self):
         """
@@ -213,5 +231,5 @@ class Observer:
         if self.save_dir is None:
             return
 
-        if self.image_buffer or self.proprio_buffer or self.actions_buffer:
+        if self.image_buffer or self.proprio_buffer or self.actions_buffer or self.emg_buffer:
             self.flush_buffers()

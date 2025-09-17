@@ -13,6 +13,7 @@ from deoxys.utils.input_utils import input2action
 from .observer import Observer
 from .robot_interface import RobotInterface
 from .vision_interface import VisionInterface
+from .emg_interface import EMGInterface
 
 
 class RealWorldEnvironment:
@@ -20,6 +21,7 @@ class RealWorldEnvironment:
         self,
         controller,
         camera_ids,
+        emg_mac_tty, # (mac, tty)
         interface_cfg,
         controller_cfg,
         controller_type,
@@ -37,6 +39,7 @@ class RealWorldEnvironment:
 
         # Instantiate one ZED camera interface per provided camera id
         self.camera_interfaces = [VisionInterface(camera_id=id) for id in camera_ids]
+        self.emg_interface = EMGInterface(mac=emg_mac_tty[0], tty=emg_mac_tty[1], window_length=100)
 
         self.sleep_durr = 1 / fps
         self.save_dir = save_dir
@@ -72,12 +75,18 @@ class RealWorldEnvironment:
             self.camera_threads.append(t)
         print("Zed Cameras launched!\n")
 
+        print("Launching thread for EMG band...")
+        self.emg_interface.connect()
+        while not self.emg_interface.is_connected():
+            time.sleep(0.1)
+
+
         print("\nInitiating observer...")
         # The observer will create disk stores only if save_dir is provided.
         if self.save_dir is not None:
-            self.observer = Observer(self.robot_interface, self.camera_interfaces, self.save_dir)
+            self.observer = Observer(self.robot_interface, self.camera_interfaces, self.emg_interface, self.save_dir)
         else:
-            self.observer = Observer(self.robot_interface, self.camera_interfaces)
+            self.observer = Observer(self.robot_interface, self.camera_interfaces, self.emg_interface)
         print("Observer launched!\n")
 
         print(f"\n{13 * ' '}RoboEnv ready in\n{(13 + 8) * ' '}3... ")
@@ -176,4 +185,5 @@ class RealWorldEnvironment:
             cam.close()
             thread.join()
         self.robot_thread.join()
+        self.emg_interface.disconnect()
         print("Shutdown successful!")

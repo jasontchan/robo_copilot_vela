@@ -33,24 +33,6 @@ def parse_args() -> argparse.Namespace:
         help="Choose from 'autonomous', 'partial', 'total'.",
     )
     parser.add_argument(
-        "--gamma",
-        type=float,
-        required=True,
-        help="0.0 <= Diffusion strength <= 1.0.",
-    )
-    parser.add_argument(
-        "--rho",
-        type=float,
-        required=True,
-        help="0.0 <= In-painting ratio <= 1.0.",
-    )
-    parser.add_argument(
-        "--alpha",
-        type=float,
-        required=True,
-        help="a = alpha * u + (1 - alpha) * e",
-    )
-    parser.add_argument(
         "--config",
         type=str,
         required=True,
@@ -61,12 +43,6 @@ def parse_args() -> argparse.Namespace:
         type=str,
         required=True,
         help="path/to/model.ckpt",
-    )
-    parser.add_argument(
-        "--ddim",
-        type=bool,
-        default=False,
-        help="Set to True for ddim sampling",
     )
     parser.add_argument(
         "--baseline",
@@ -86,7 +62,6 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="path/to/sace_dir",
     )
-    parser.add_argument("--corrupt", type=bool, default=False, help="Set to True for fun times")
     return parser.parse_args()
 
 
@@ -111,7 +86,7 @@ def load_config(config_path: str) -> ZarrDataConfig:
     return config_module.config
 
 
-def main(config: ZarrDataConfig, ckpt_path: str, seed: str, gamma: float, rho: float, alpha: float, corrupt: bool, ddim: bool, baseline: bool, time_limit: float, save_dir: Optional[str]=None) -> None:
+def main(config: ZarrDataConfig, ckpt_path: str, seed: str, baseline: bool, time_limit: float, save_dir: Optional[str]=None) -> None:
     """
     Set up and run the inference loop for the shared autonomy system.
 
@@ -130,9 +105,11 @@ def main(config: ZarrDataConfig, ckpt_path: str, seed: str, gamma: float, rho: f
         gamma (float): Diffusion strength; typically a value between 0.0 and 1.0.
     """
     # Define paths for the interface and controller configuration files.
+    #TODO: CREATE AND CHANGE CONFIGS
     interface_cfg: str = "/home/robomaster/git/robo_copilot/roboenv/configs/charmander.yml"
+    #TODO: CREATE AND CHANGE CONFIGS
     controller_cfg: str = "/home/robomaster/git/robo_copilot/roboenv/configs/osc-position-controller.yml"
-    controller_type: str = "OSC_POSE"
+    controller_type: str = "JOINT_IMPEDANCE"
     camera_ids: list[int] = [0, 1]  # List of ZED camera IDs
 
     # Initialize the space mouse controller.
@@ -140,8 +117,6 @@ def main(config: ZarrDataConfig, ckpt_path: str, seed: str, gamma: float, rho: f
     controller: SpaceMouse = SpaceMouse(pos_sensitivity=0.7, rot_sensitivity=0.5)
     controller.start_control()
 
-    if corrupt:
-        from scripts.corrupt_spacemouse import corruptor
     print(f"SpaceMouse launched!\n{50 * '='}\n")
 
     capture_rate: int = 10  # Capture rate in Hz
@@ -159,25 +134,9 @@ def main(config: ZarrDataConfig, ckpt_path: str, seed: str, gamma: float, rho: f
 
     print(f"\n\n{50 * '='}\nLoading Policy...")
     # Load pretrained network modules.
-    nets = load_pretrained_nets(ckpt_path, config)
-
-    # Create and configure the diffusion scheduler.
-    # Here we initialize the DDPMScheduler and then obtain a DDIMScheduler from its configuration.
-    ddpm_scheduler = DDPMScheduler(num_train_timesteps=config.num_diffusion_iters, beta_schedule="squaredcos_cap_v2", clip_sample=True, prediction_type="epsilon")
-    if ddim:
-        ddim_scheduler = DDIMScheduler.from_config(ddpm_scheduler.config)
-        ddim_scheduler.set_timesteps(num_inference_steps=30)
-        scheduler = ddim_scheduler
-    else:
-        scheduler = ddpm_scheduler
-
-    # Instantiate the diffusion-based shared autonomy policy.
-    if not baseline:
-        print(f"{100*'='}\nRECEDING HORIZON\n{100*'='}")
-        policy = DiffusionPolicy(config=config, nets=nets, scheduler=scheduler, seed_mode=seed, gamma=gamma, rho=rho)
-    else:
-        policy = BaselineDiffusionPolicy(config=config, nets=nets, scheduler=scheduler, seed_mode=seed, gamma=gamma, rho=rho)
-
+    # Connect to openpi policy
+ 
+  
     # Set device (use CUDA if available, otherwise CPU)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     policy.to(device)
@@ -185,19 +144,13 @@ def main(config: ZarrDataConfig, ckpt_path: str, seed: str, gamma: float, rho: f
 
     # Launch the environment and begin inference.
     env.launch()
-    policy.warmup()
     try:
         while not stop_event.is_set() and time.time() - policy.start_time < time_limit:
             # Get synchronized observation from the robot sensors and cameras.
             obs = env.get_observation()
-            # Obtain current user action from the controller.
-            user_action = env.get_controller_action()
-            if corrupt:
-                user_action = corruptor.corrupt(user_action)
-            # Compute the expert (diffusion-predicted) action using the policy.
-            expert_action = policy(obs, user_action)
-            expert_action = (1.0 - alpha) * expert_action + alpha * user_action
-            expert_action[-1] = user_action[-1]
+
+            # Compute the expert action using the policy.
+           
             env.record(obs, expert_action)
             # Execute the computed action in the environment.
             env.step(expert_action)
@@ -217,11 +170,6 @@ if __name__ == "__main__":
     main(config=config,
          ckpt_path=args.ckpt,
          seed=args.seed,
-         gamma=args.gamma,
-         rho=args.rho,
-         alpha=args.alpha,
-         corrupt=args.corrupt,
-         ddim=args.ddim,
          baseline=args.baseline,
          time_limit=args.time_limit,
          save_dir=args.save_dir)

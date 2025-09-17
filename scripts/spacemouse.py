@@ -37,7 +37,7 @@ def main(save_dir: Union[str, None], corrupt: bool, time_limit: float):
     controller_cfg = "/home/robomaster/git/robo_copilot/roboenv/configs/osc-position-controller.yml"
     controller_type = "OSC_POSE"
     # Configuration parameters: adjust robot IP and camera IDs as needed.
-    camera_ids = [0, 1]  # list of ZED camera IDs
+    camera_ids = [0]  # list of ZED camera IDs
 
     # Initialize controller
     print(f"\n{50 * '='}\nLaunching SpaceMouse...\n")
@@ -76,6 +76,7 @@ def main(save_dir: Union[str, None], corrupt: bool, time_limit: float):
             observation = env.get_observation()
             # Get action signal from SpaceMouse
             action = env.get_controller_action()
+            print(f"action: {action}")
             # corrupt signal if desired
             if corrupt:
                 action = corruptor.corrupt(action)
