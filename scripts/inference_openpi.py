@@ -13,25 +13,15 @@ from diffusion_policy.inference import DiffusionPolicy, BaselineDiffusionPolicy
 from diffusion_policy.utils import ZarrDataConfig, load_pretrained_nets
 from roboenv import RealWorldEnvironment
 
+from policy.openpi_policy import OpenPIPolicyClient
+
 
 def parse_args() -> argparse.Namespace:
     """
     Parse command-line arguments for the inference script.
 
-    Returns:
-        argparse.Namespace: A namespace containing the parsed command-line arguments, which include:
-            - seed (str): Seeding strategy; should be one of 'autonomous', 'partial', or 'total'.
-            - gamma (float): Diffusion strength (a value between 0.0 and 1.0).
-            - config (str): Path to the configuration file (config.py).
-            - ckpt (str): Path to the pretrained model checkpoint.
     """
-    parser = argparse.ArgumentParser(description="Inference! Autonomous or shared!")
-    parser.add_argument(
-        "--seed",
-        type=str,
-        required=True,
-        help="Choose from 'autonomous', 'partial', 'total'.",
-    )
+    parser = argparse.ArgumentParser(description="Inference via PI_0.5")
     parser.add_argument(
         "--config",
         type=str,
@@ -39,16 +29,22 @@ def parse_args() -> argparse.Namespace:
         help="path/to/config.py",
     )
     parser.add_argument(
-        "--ckpt",
+        "--host_ip",
         type=str,
         required=True,
-        help="path/to/model.ckpt",
+        help="0.0.0.0",
     )
     parser.add_argument(
-        "--baseline",
-        type=bool,
-        default=False,
-        help="Set to True for baseline policy",
+        "--port",
+        type=int,
+        required=True,
+        help="00",
+    )
+    parser.add_argument(
+        "--prompt",
+        type=str,
+        required=True,
+        help='input prompt for VLA here'
     )
     parser.add_argument(
         "--time_limit",
@@ -62,6 +58,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="path/to/sace_dir",
     )
+    
     return parser.parse_args()
 
 
@@ -86,17 +83,17 @@ def load_config(config_path: str) -> ZarrDataConfig:
     return config_module.config
 
 
-def main(config: ZarrDataConfig, ckpt_path: str, seed: str, baseline: bool, time_limit: float, save_dir: Optional[str]=None) -> None:
+def main(config: ZarrDataConfig, host_ip: str, port: int, prompt: str, time_limit: float, save_dir: Optional[str]=None) -> None:
     """
     Set up and run the inference loop for the shared autonomy system.
 
     This function performs the following:
       1. Initializes the robotic environment and controller.
-      2. Loads the pretrained neural network modules and diffusion scheduler.
-      3. Instantiates the DiffusionPolicy with the provided configuration, networks, scheduler, seeding strategy, and gamma.
-      4. Launches the environment and continuously queries the policy to compute actions based on sensor observations
-         and user inputs, which are then executed by the robot.
-      5. Handles graceful shutdown on keyboard interrupt.
+      2. Connects to openpi client.
+        2.5 Openpi instantiates the checkpoint vla policy
+      3. Launches the environment and continuously queries the policy to compute actions based on sensor observations
+         and user emg, which are then executed by the robot.
+      4. Handles graceful shutdown on keyboard interrupt.
 
     Args:
         config (ZarrDataConfig): The configuration object containing relevant system parameters.
@@ -104,12 +101,11 @@ def main(config: ZarrDataConfig, ckpt_path: str, seed: str, baseline: bool, time
         seed (str): Seeding strategy to use for future action generation ('autonomous', 'partial', or 'total').
         gamma (float): Diffusion strength; typically a value between 0.0 and 1.0.
     """
+
     # Define paths for the interface and controller configuration files.
-    #TODO: CREATE AND CHANGE CONFIGS
-    interface_cfg: str = "/home/robomaster/git/robo_copilot/roboenv/configs/charmander.yml"
-    #TODO: CREATE AND CHANGE CONFIGS
-    controller_cfg: str = "/home/robomaster/git/robo_copilot/roboenv/configs/osc-position-controller.yml"
-    controller_type: str = "JOINT_IMPEDANCE"
+    interface_cfg: str = "/home/chopper/robo_copilot_vela/configs/charmander.yml"
+    controller_cfg: str = "/home/chopper/robo_copilot_vela/configs/joint-position-controller.yml"
+    controller_type: str = "JOINT_POSITION"
     camera_ids: list[int] = [0, 1]  # List of ZED camera IDs
 
     # Initialize the space mouse controller.
@@ -125,6 +121,7 @@ def main(config: ZarrDataConfig, ckpt_path: str, seed: str, baseline: bool, time
     env: RealWorldEnvironment = RealWorldEnvironment(
         controller=controller,
         camera_ids=camera_ids,
+        emg_mac_tty=None,
         interface_cfg=interface_cfg,
         controller_cfg=controller_cfg,
         controller_type=controller_type,
@@ -135,21 +132,22 @@ def main(config: ZarrDataConfig, ckpt_path: str, seed: str, baseline: bool, time
     print(f"\n\n{50 * '='}\nLoading Policy...")
     # Load pretrained network modules.
     # Connect to openpi policy
- 
-  
+    client = OpenPIPolicyClient(host_ip=host_ip, port=port)
+    print(f"Instantiated OpenPI Client!\n{50 * '='}\n\n")
     # Set device (use CUDA if available, otherwise CPU)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    policy.to(device)
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # policy.to(device)
     print(f"Policy loaded!\n{50 * '='}\n\n")
-
+    start_time = time.time()
     # Launch the environment and begin inference.
     env.launch()
     try:
-        while not stop_event.is_set() and time.time() - policy.start_time < time_limit:
+        while not stop_event.is_set() and time.time() - start_time < time_limit:
             # Get synchronized observation from the robot sensors and cameras.
             obs = env.get_observation()
 
             # Compute the expert action using the policy.
+            expert_action = client.infer_droid(ext_img=obs['cam_0'], wrist_img=obs['cam_1'], state=obs['robot_state'][:-1], gripper_state=obs['robot_state'][-1], text=prompt)
            
             env.record(obs, expert_action)
             # Execute the computed action in the environment.
@@ -168,8 +166,8 @@ if __name__ == "__main__":
     args: argparse.Namespace = parse_args()
     config: ZarrDataConfig = load_config(args.config)
     main(config=config,
-         ckpt_path=args.ckpt,
-         seed=args.seed,
-         baseline=args.baseline,
+         host_ip=args.host_ip,
+         port=args.port,
+         prompt=args.prompt,
          time_limit=args.time_limit,
          save_dir=args.save_dir)

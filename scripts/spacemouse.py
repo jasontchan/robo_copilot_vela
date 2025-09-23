@@ -8,9 +8,11 @@ from typing import Union
 import time
 
 from deoxys.utils.io_devices import SpaceMouse
+# import sys
+# sys.path.append('/home/chopper/robo_copilot_vela/roboenv')
 from shutdown import stop_event
 
-from roboenv import RealWorldEnvironment
+from environment import RealWorldEnvironment
 
 
 def parse_args():
@@ -33,8 +35,8 @@ def parse_args():
 
 
 def main(save_dir: Union[str, None], corrupt: bool, time_limit: float):
-    interface_cfg = "/home/robomaster/git/robo_copilot/roboenv/configs/charmander.yml"
-    controller_cfg = "/home/robomaster/git/robo_copilot/roboenv/configs/osc-position-controller.yml"
+    interface_cfg = "/home/chopper/robo_copilot_vela/configs/charmander.yml"
+    controller_cfg = "/home/chopper/robo_copilot_vela/configs/osc-position-controller.yml"
     controller_type = "OSC_POSE"
     # Configuration parameters: adjust robot IP and camera IDs as needed.
     camera_ids = [0]  # list of ZED camera IDs
@@ -54,6 +56,7 @@ def main(save_dir: Union[str, None], corrupt: bool, time_limit: float):
     env = RealWorldEnvironment(
         controller=controller,
         camera_ids=camera_ids,
+        emg_mac_tty=None,
         interface_cfg=interface_cfg,
         controller_cfg=controller_cfg,
         controller_type=controller_type,
@@ -79,6 +82,7 @@ def main(save_dir: Union[str, None], corrupt: bool, time_limit: float):
             print(f"action: {action}")
             # corrupt signal if desired
             if corrupt:
+                print("Corrupting")
                 action = corruptor.corrupt(action)
             # Record the observation-action pair for training data
             env.record(observation, action)

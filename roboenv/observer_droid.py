@@ -10,7 +10,7 @@ import zarr
 from PIL import Image
 
 
-class Observer:
+class ObserverDroid:
     def __init__(self, robot_interface, camera_interfaces, emg_interface, save_dir=None, chunk_size=6):
         self.robot = robot_interface
         self.cameras = camera_interfaces
@@ -55,12 +55,13 @@ class Observer:
             proprio_dtype = np.dtype(
                 [
                     ("timestamp", "int64"),
-                    ("x_pos", "float32"),
-                    ("y_pos", "float32"),
-                    ("z_pos", "float32"),
-                    ("roll", "float32"),
-                    ("pitch", "float32"),
-                    ("yaw", "float32"),
+                    ("q_1", "float32"),
+                    ("q_2", "float32"),
+                    ("q_3", "float32"),
+                    ("q_4", "float32"),
+                    ("q_5", "float32"),
+                    ("q_6", "float32"),
+                    ("q_7", "float32")
                     ("gripper_width", "float32"),
                 ]
             )
@@ -78,13 +79,14 @@ class Observer:
             actions_dtype = np.dtype(
                 [
                     ("timestamp", "int64"),
-                    ("x_vel", "float32"),
-                    ("y_vel", "float32"),
-                    ("z_vel", "float32"),
-                    ("roll", "float32"),
-                    ("pitch", "float32"),
-                    ("yaw", "float32"),
-                    ("gripper", "float32"),
+                    ("q_1", "float32"),
+                    ("q_2", "float32"),
+                    ("q_3", "float32"),
+                    ("q_4", "float32"),
+                    ("q_5", "float32"),
+                    ("q_6", "float32"),
+                    ("q_7", "float32")
+                    ("gripper_width", "float32"),
                 ]
             )
             self.actions_ds = self.zarr_root.create_dataset(
@@ -133,7 +135,7 @@ class Observer:
         obs["timestamp"] = int((time.time() - self.start_time) * 1000)
         obs["robot_state"] = (
             self.robot.state
-        )  # Expected to be something like [x, y, z, roll, pitch, yaw, gripper_width]
+        )  # Expected to be something like [joint1, joint2, joint3, joint4, joint5, joint6, joint7, gripper]
 
         encoded_images = []  # JPEG bytes (only if demo mode)
         for cam in self.cameras:
@@ -153,6 +155,7 @@ class Observer:
             self.current_encoded_images = encoded_images
 
         return obs
+
 
     def record(self, obs, action):
         """
@@ -178,6 +181,7 @@ class Observer:
             float(obs["robot_state"][4]),
             float(obs["robot_state"][5]),
             float(obs["robot_state"][6]),
+            float(obs["robot_state"][7]),
         )
         self.proprio_buffer.append(proprio_entry)
 
@@ -192,6 +196,7 @@ class Observer:
             float(action[4]),
             float(action[5]),
             float(action[6]),
+            float(action[7]),
         )
         self.actions_buffer.append(action_entry)
 

@@ -8,7 +8,7 @@ from PIL import Image
 # TODO: can someone correct this
 ZED_SERIAL_NUMBER_MAP: dict = {
     # 0: 23474280,
-    0: 24944966,
+    0: 23474280,
     1: 14920248,
     # 2: 24680
 }

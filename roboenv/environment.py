@@ -10,12 +10,14 @@ from deoxys.franka_interface import FrankaInterface
 from deoxys.utils import YamlConfig
 from deoxys.utils.input_utils import input2action
 
-from .observer import Observer
-from .robot_interface import RobotInterface
-from .vision_interface import VisionInterface
-from .emg_interface import EMGInterface
+from observer import Observer
+from observer_droid import ObserverDroid
+from robot_interface import RobotInterface
+from robot_interface_droid import RobotInterfaceDroid
+from vision_interface import VisionInterface
+from emg_interface import EMGInterface
 
-
+### THOUGHT: use OSC for controller type but then grab robot states as JOINT_POSITION
 class RealWorldEnvironment:
     def __init__(
         self,
@@ -35,11 +37,13 @@ class RealWorldEnvironment:
 
         # Instantiate the FRANKA interface
         franka_interface = FrankaInterface(interface_cfg)
-        self.robot_interface = RobotInterface(franka_interface)
+        # self.robot_interface = RobotInterface(franka_interface)
+        self.robot_interface = RobotInterfaceDroid(franka_interface)
+
 
         # Instantiate one ZED camera interface per provided camera id
         self.camera_interfaces = [VisionInterface(camera_id=id) for id in camera_ids]
-        self.emg_interface = EMGInterface(mac=emg_mac_tty[0], tty=emg_mac_tty[1], window_length=100)
+        self.emg_interface = EMGInterface(mac=emg_mac_tty[0], tty=emg_mac_tty[1], window_length=100) if emg_mac_tty is not None else None
 
         self.sleep_durr = 1 / fps
         self.save_dir = save_dir
@@ -76,18 +80,25 @@ class RealWorldEnvironment:
         print("Zed Cameras launched!\n")
 
         print("Launching thread for EMG band...")
-        self.emg_interface.connect()
-        while not self.emg_interface.is_connected():
-            time.sleep(0.1)
+        if self.emg_interface is not None:
+            self.emg_interface.connect()
+            while not self.emg_interface.is_connected():
+                time.sleep(0.1)
 
 
         print("\nInitiating observer...")
         # The observer will create disk stores only if save_dir is provided.
+        # if self.save_dir is not None:
+        #     self.observer = Observer(self.robot_interface, self.camera_interfaces, self.emg_interface, self.save_dir)
+        # else:
+        #     self.observer = Observer(self.robot_interface, self.camera_interfaces, self.emg_interface)
+        # print("Observer launched!\n")
         if self.save_dir is not None:
-            self.observer = Observer(self.robot_interface, self.camera_interfaces, self.emg_interface, self.save_dir)
+            self.observer = ObserverDroid(self.robot_interface, self.camera_interfaces, self.emg_interface, self.save_dir)
         else:
-            self.observer = Observer(self.robot_interface, self.camera_interfaces, self.emg_interface)
+            self.observer = ObserverDroid(self.robot_interface, self.camera_interfaces, self.emg_interface)
         print("Observer launched!\n")
+
 
         print(f"\n{13 * ' '}RoboEnv ready in\n{(13 + 8) * ' '}3... ")
         for i in range(2, 0, -1):
@@ -185,5 +196,6 @@ class RealWorldEnvironment:
             cam.close()
             thread.join()
         self.robot_thread.join()
-        self.emg_interface.disconnect()
+        if self.emg_interface is not None:
+            self.emg_interface.disconnect()
         print("Shutdown successful!")
